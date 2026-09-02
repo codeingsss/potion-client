@@ -169,12 +169,70 @@ tasks.named("build") {
     dependsOn(pythonAddonJar)
 }
 
+val generateNativeAddonMetadata by tasks.registering {
+    val outputFile = layout.buildDirectory.file("generated/native-addon/fabric.mod.json")
+    outputs.file(outputFile)
+
+    doLast {
+        outputFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                {
+                  "schemaVersion": 1,
+                  "id": "native-addon",
+                  "version": "${project.version}",
+                  "name": "Native Addon (C/C++ Runtime)",
+                  "description": "Adds native (\".dll\"/\".so\"/\".dylib\") addon support to Potion Client via JNI. Install alongside potion-client; \".bsh\"/\".py\" addons work fine without it. Native addons run unsandboxed — only install ones you trust.",
+                  "environment": "client",
+                  "depends": {
+                    "java": ">=21",
+                    "fabricloader": "*"
+                  }
+                }
+                """.trimIndent()
+            )
+        }
+    }
+}
+
+// Just a marker class + metadata: unlike Python, native addon support needs no bundled runtime
+// (JNI is built into the JDK). This jar's only job is to be an explicit opt-in gate, since native
+// addons run unsandboxed code — see NativeRuntime's javadoc.
+val nativeAddonJar by tasks.registering(Jar::class) {
+    dependsOn(generateNativeAddonMetadata)
+    archiveBaseName.set("native-addon")
+    archiveVersion.set(project.version.toString())
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from(sourceSets["nativeAddon"].output)
+    from(layout.buildDirectory.file("generated/native-addon/fabric.mod.json"))
+}
+
+tasks.named("build") {
+    dependsOn(nativeAddonJar)
+}
+
 sourceSets {
     val launcher by creating {
         java {
             srcDir("src/launcher/java")
         }
     }
+
+    // Marker class for the "native-addon" companion jar — see NativeRuntime's javadoc.
+    val nativeAddon by creating {
+        java {
+            srcDir("src/nativeAddon/java")
+        }
+    }
+}
+
+dependencies {
+    // Native (C/C++ via JNI) addon support is gated behind the separate "native-addon" companion
+    // jar, same opt-in pattern as Python. This tiny marker class only exists in that jar, so
+    // NativeRuntime (which references it) throws a clean NoClassDefFoundError when it's absent.
+    compileOnly(sourceSets["nativeAddon"].output)
 }
 
 java {

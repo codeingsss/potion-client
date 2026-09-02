@@ -69,17 +69,25 @@ class PythonRuntime {
     }
 
     static void loadAll(List<File> scripts, File libDir) {
+        // Pure-Python packages can be dropped into "site-packages" (e.g. by running
+        // "pip install --target <that folder> <package>" on your own machine) and will be
+        // importable from addon scripts. Packages needing native/C extensions won't work.
+        File sitePackagesDir = new File(libDir, "site-packages");
+
         try {
             Files.createDirectories(libDir.toPath());
+            Files.createDirectories(sitePackagesDir.toPath());
             Files.writeString(new File(libDir, "Potion.py").toPath(), POTION_PY);
         } catch (IOException e) {
             MeteorClient.LOG.error("Potion scripting: failed to set up the Python addon lib folder.", e);
             return;
         }
 
+        String pythonPath = libDir.getAbsolutePath() + File.pathSeparator + sitePackagesDir.getAbsolutePath();
+
         Context context = Context.newBuilder("python")
             .allowAllAccess(true)
-            .option("python.PythonPath", libDir.getAbsolutePath())
+            .option("python.PythonPath", pythonPath)
             .out(System.out)
             .err(System.err)
             .build();

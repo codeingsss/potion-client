@@ -22,10 +22,13 @@ import java.util.Set;
 /**
  * Loads Potion addons from "<gameDir>/meteor-client/addons/".
  * ".bsh" (BeanShell) addons always work. ".py" (Python) addons only work if the separate
- * "python-addon" companion jar (GraalPy) is also installed alongside Potion Client.
- * Every script gets a "po" variable — see {@link PotionBridge} for what it can do.
+ * "python-addon" companion jar (GraalPy) is also installed alongside Potion Client. ".dll"/".so"/
+ * ".dylib" (native, C/C++ via JNI) addons only work if the separate "native-addon" companion jar
+ * is also installed. Every script gets a "po" variable — see {@link PotionBridge} for what it can
+ * do; native addons call the same functionality via the plain static {@link PotionNative} methods.
  */
 public class PotionScripting {
+    private static final String[] NATIVE_EXTENSIONS = { ".dll", ".so", ".dylib" };
     private static final String NEW_BSH_ADDON_TEMPLATE = """
         myFeatureHandler() {
             run() {
@@ -49,8 +52,15 @@ public class PotionScripting {
     }
 
     public static File[] listAddonScripts() {
-        File[] scripts = getAddonsDir().listFiles((dir, name) -> name.endsWith(".bsh") || name.endsWith(".py"));
+        File[] scripts = getAddonsDir().listFiles((dir, name) -> name.endsWith(".bsh") || name.endsWith(".py") || isNative(name));
         return scripts == null ? new File[0] : scripts;
+    }
+
+    private static boolean isNative(String name) {
+        for (String ext : NATIVE_EXTENSIONS) {
+            if (name.endsWith(ext)) return true;
+        }
+        return false;
     }
 
     private static File getEnabledListFile() {
@@ -122,12 +132,15 @@ public class PotionScripting {
 
         Set<String> enabled = getEnabledNames();
         List<File> pythonScripts = new ArrayList<>();
+        List<File> nativeLibs = new ArrayList<>();
 
         for (File script : listAddonScripts()) {
             if (!enabled.contains(script.getName())) continue;
 
             if (script.getName().endsWith(".bsh")) {
                 loadBeanShell(script);
+            } else if (isNative(script.getName())) {
+                nativeLibs.add(script);
             } else {
                 pythonScripts.add(script);
             }
@@ -138,6 +151,14 @@ public class PotionScripting {
                 PythonRuntime.loadAll(pythonScripts, getPythonLibDir());
             } catch (Throwable t) {
                 MeteorClient.LOG.warn("Potion scripting: found .py addons, but the Python runtime (\"python-addon\") isn't installed or failed to start. Install/reinstall it alongside Potion Client to run them.", t);
+            }
+        }
+
+        if (!nativeLibs.isEmpty()) {
+            try {
+                NativeRuntime.loadAll(nativeLibs);
+            } catch (Throwable t) {
+                MeteorClient.LOG.warn("Potion scripting: found native addons, but the native runtime (\"native-addon\") isn't installed. Install it alongside Potion Client to run them.", t);
             }
         }
     }
