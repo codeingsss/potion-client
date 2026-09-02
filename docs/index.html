@@ -114,16 +114,27 @@ po.set("Potion", "python-hello", hello)
   <pre class="code-block"><code data-i18n="cCode">// example.c — Native (컴파일해서 .dll/.so, Native Addon 설치 시 작동)
 #include &lt;jni.h&gt;
 
+// 모듈이 켜져있는 동안 매 틱 호출됩니다 — Potion(자바)이 이 네이티브 함수를 직접 호출합니다.
+void my_tick(JNIEnv *env, jclass cls, jlong handle) {
+    // ... 여기에 원하는 네이티브 코드 작성 ...
+}
+
 // .dll/.so가 로드되는 순간 자동으로 호출됩니다.
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *env;
     (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_8);
 
     jclass cls = (*env)->FindClass(env, "meteordevelopment/meteorclient/scripting/PotionNative");
-    jmethodID chat = (*env)->GetStaticMethodID(env, cls, "chat", "(Ljava/lang/String;)V");
 
-    jstring msg = (*env)->NewStringUTF(env, "Hello from a native addon!");
-    (*env)->CallStaticVoidMethod(env, cls, chat, msg);
+    // Java의 "invokeTick" native 메서드를 위 C 함수와 연결 (이게 있어야 자바 -> 네이티브 호출이 가능함)
+    JNINativeMethod methods[] = { {"invokeTick", "(J)V", (void *) my_tick} };
+    (*env)->RegisterNatives(env, cls, methods, 1);
+
+    // "my-feature"라는 모듈로 등록. handle=1은 my_tick에서 어떤 등록인지 구분하는 값.
+    jmethodID registerModule = (*env)->GetStaticMethodID(env, cls, "registerModule",
+        "(Ljava/lang/String;Ljava/lang/String;J)V");
+    (*env)->CallStaticVoidMethod(env, cls, registerModule,
+        (*env)->NewStringUTF(env, "Potion"), (*env)->NewStringUTF(env, "my-feature"), (jlong) 1);
 
     return JNI_VERSION_1_8;
 }
@@ -200,7 +211,7 @@ po.commandWithArgs("say", (java.util.function.Consumer) myArgHandler());</code><
   <pre class="code-block"><code data-i18n="apiExternalCode">pip install --target "C:\...\meteor-client\addons\.potion_lib\site-packages" requests</code></pre>
 
   <h3 class="api-subtitle" data-i18n="apiNativeTitle">네이티브(C/C++) 애드온 작성법</h3>
-  <p class="download-note" data-i18n="apiNativeIntro">Native Addon 설치 시, <code>meteor-client/addons/</code>의 .dll(Windows)/.so(Linux)/.dylib(macOS) 파일이 공유 라이브러리로 로드됩니다. 별도의 init/tick 콜백 규약은 없고, 표준 JNI 진입점인 <code>JNI_OnLoad</code>가 로드 즉시 한 번 호출됩니다 — 여기서 원하는 대로 스레드를 만들거나 아래 함수들을 호출하면 됩니다. BeanShell/Python과 달리 샌드박스가 전혀 없는 네이티브 코드이므로, 신뢰할 수 있는 애드온만 설치하세요.</p>
+  <p class="download-note" data-i18n="apiNativeIntro">Native Addon 설치 시, <code>meteor-client/addons/</code>의 .dll(Windows)/.so(Linux)/.dylib(macOS) 파일이 공유 라이브러리로 로드됩니다. 표준 JNI 진입점인 <code>JNI_OnLoad</code>가 로드 즉시 한 번 호출되며, 여기서 아래 함수들을 호출해 채팅/상태 조회는 물론 <code>registerModule</code>/<code>registerCommand</code>로 진짜 모듈·명령어까지 등록할 수 있습니다. BeanShell/Python과 달리 샌드박스가 전혀 없는 네이티브 코드이므로, 신뢰할 수 있는 애드온만 설치하세요.</p>
 
   <table class="api-table">
     <thead>
@@ -211,6 +222,9 @@ po.commandWithArgs("say", (java.util.function.Consumer) myArgHandler());</code><
       </tr>
     </thead>
     <tbody>
+      <tr><td><code>registerModule(String, String, long)</code></td><td><code>(Ljava/lang/String;Ljava/lang/String;J)V</code></td><td data-i18n="apiNativeRegisterModule">모듈 등록 (category, name, handle). 모듈이 켜져있는 동안 매 틱 <code>invokeTick(handle)</code>이 호출됨.</td></tr>
+      <tr><td><code>registerCommand(String, long)</code></td><td><code>(Ljava/lang/String;J)V</code></td><td data-i18n="apiNativeRegisterCommand">"." 명령어 등록 (cmd, handle). 실행 시 <code>invokeCommand(handle, args)</code>가 호출됨.</td></tr>
+      <tr><td><code>invokeTick(long)</code> / <code>invokeCommand(long, String)</code></td><td><code>(J)V</code> / <code>(JLjava/lang/String;)V</code></td><td data-i18n="apiNativeInvoke">자바 쪽엔 구현이 없는 native 메서드 — <code>RegisterNatives</code>로 직접 바인딩해야 자바 → 네이티브 호출이 가능해짐.</td></tr>
       <tr><td><code>chat(String)</code></td><td><code>(Ljava/lang/String;)V</code></td><td data-i18n="apiChat">인게임 채팅으로 메시지 표시.</td></tr>
       <tr><td><code>error(String)</code></td><td><code>(Ljava/lang/String;)V</code></td><td data-i18n="apiError">빨간색 에러 채팅 메시지 표시.</td></tr>
       <tr><td><code>log(String)</code></td><td><code>(Ljava/lang/String;)V</code></td><td data-i18n="apiLog">로그 파일에 기록.</td></tr>
@@ -236,7 +250,32 @@ po.commandWithArgs("say", (java.util.function.Consumer) myArgHandler());</code><
       <tr><td><code>toggleModule(String)</code> / <code>enableModule(String)</code> / <code>disableModule(String)</code></td><td><code>(Ljava/lang/String;)V</code></td><td data-i18n="apiModuleToggle">다른 모듈을 켜고 끄기 (이름으로 지정).</td></tr>
     </tbody>
   </table>
-  <p class="download-note" data-i18n="apiNativeReturnNote">클래스: <code>meteordevelopment/meteorclient/scripting/PotionNative</code>. 반환 타입에 맞는 JNI 호출 함수를 쓰세요 — <code>V</code>→CallStaticVoidMethod, <code>Ljava/lang/String;</code>→CallStaticObjectMethod, <code>Z</code>→CallStaticBooleanMethod, <code>F</code>→CallStaticFloatMethod, <code>I</code>→CallStaticIntMethod, <code>D</code>→CallStaticDoubleMethod, <code>J</code>→CallStaticLongMethod. <code>set</code>/<code>command</code>/<code>commandWithArgs</code>/<code>java</code>는 콜백 함수를 받기 때문에 네이티브 애드온에서는 지원하지 않습니다 — 모듈/명령어가 필요하면 BeanShell/Python을 쓰세요.</p>
+  <p class="download-note" data-i18n="apiNativeReturnNote">클래스: <code>meteordevelopment/meteorclient/scripting/PotionNative</code>. 반환 타입에 맞는 JNI 호출 함수를 쓰세요 — <code>V</code>→CallStaticVoidMethod, <code>Ljava/lang/String;</code>→CallStaticObjectMethod, <code>Z</code>→CallStaticBooleanMethod, <code>F</code>→CallStaticFloatMethod, <code>I</code>→CallStaticIntMethod, <code>D</code>→CallStaticDoubleMethod, <code>J</code>→CallStaticLongMethod.</p>
+
+  <h3 class="api-subtitle" data-i18n="apiNativeCallbackTitle">자바 → 네이티브 콜백 (RegisterNatives)</h3>
+  <p class="download-note" data-i18n="apiNativeCallbackNote"><code>chat()</code>/<code>x()</code> 같은 함수들은 전부 "네이티브 → 자바" 방향입니다. 반대로 자바(Potion)가 틱마다 또는 명령어 실행 시 여러분의 C 함수를 직접 호출하게 하려면, JNI의 <code>RegisterNatives</code>로 <code>invokeTick</code>/<code>invokeCommand</code>(자바 쪽엔 구현이 없는 native 메서드)를 여러분의 C 함수와 연결한 다음 <code>registerModule</code>/<code>registerCommand</code>를 호출하세요. 이렇게 하면 BeanShell의 <code>po.set</code>/<code>po.command</code>와 동등한, 진짜 콜백 기반 모듈/명령어를 C/C++로 만들 수 있습니다.</p>
+  <pre class="code-block"><code data-i18n="apiNativeCallbackCode">void my_tick(JNIEnv *env, jclass cls, jlong handle) {
+    // 모듈이 켜져있는 동안 매 틱 호출됨
+}
+
+void my_command(JNIEnv *env, jclass cls, jlong handle, jstring args) {
+    // 명령어 실행 시 호출됨
+}
+
+// JNI_OnLoad 안에서:
+jclass cls = (*env)->FindClass(env, "meteordevelopment/meteorclient/scripting/PotionNative");
+
+JNINativeMethod methods[] = {
+    {"invokeTick",    "(J)V",                      (void *) my_tick},
+    {"invokeCommand", "(JLjava/lang/String;)V",     (void *) my_command},
+};
+(*env)->RegisterNatives(env, cls, methods, 2);
+
+jmethodID registerModule = (*env)->GetStaticMethodID(env, cls, "registerModule",
+    "(Ljava/lang/String;Ljava/lang/String;J)V");
+(*env)->CallStaticVoidMethod(env, cls, registerModule,
+    (*env)->NewStringUTF(env, "Potion"), (*env)->NewStringUTF(env, "my-feature"), (jlong) 1);</code></pre>
+  <p class="download-note" data-i18n="apiNativeCallbackNote2">주의: <code>RegisterNatives</code>는 클래스+시그니처 단위로 바인딩되므로, 여러 개의 네이티브 애드온이 동시에 <code>invokeTick</code>/<code>invokeCommand</code>를 등록하면 나중에 로드된 애드온이 앞의 바인딩을 덮어씁니다. 여러 모듈/명령어가 필요하면 하나의 애드온 안에서 <code>handle</code> 값으로 분기하세요. <code>java()</code> 실행은 BeanShell 콜백을 넘겨야 해서 네이티브 애드온에서는 지원하지 않습니다.</p>
 
   <h3 class="api-subtitle" data-i18n="apiNativeBuildTitle">컴파일 방법</h3>
   <p class="download-note" data-i18n="apiNativeBuildNote">JDK의 <code>include</code> 폴더에 있는 <code>jni.h</code>/<code>jni_md.h</code> 헤더가 필요합니다. 결과물(.dll/.so)을 <code>meteor-client/addons/</code>에 넣으면 됩니다.</p>

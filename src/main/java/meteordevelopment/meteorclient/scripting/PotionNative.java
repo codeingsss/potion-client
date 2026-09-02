@@ -25,6 +25,37 @@ public final class PotionNative {
     private PotionNative() {
     }
 
+    /**
+     * Lets the game call back INTO native code — the other direction from every other method in
+     * this class. "invokeTick"/"invokeCommand" are declared native on purpose: they have no Java
+     * implementation, so calling them does nothing until a native addon binds them to one of its
+     * own C functions via JNI's RegisterNatives (normally from JNI_OnLoad), e.g.:
+     *
+     *   JNINativeMethod methods[] = { {"invokeTick", "(J)V", (void*) my_tick_fn} };
+     *   (*env)->RegisterNatives(env, cls, methods, 1);
+     *
+     * Then registerModule()/registerCommand() below wire that native function up as a real Potion
+     * module/command, the same way po.set()/po.commandWithArgs() do for BeanShell/Python. "handle"
+     * is an arbitrary long the addon picks — it's passed back on every call so one native function
+     * can dispatch to several registrations by switching on it.
+     *
+     * RegisterNatives binds by (class, method signature), not per-library: if more than one
+     * native addon registers the same signature, the addon loaded last wins. A single native
+     * addon dispatching on "handle" internally is the supported way to expose multiple
+     * modules/commands.
+     */
+    public static native void invokeTick(long handle);
+
+    public static native void invokeCommand(long handle, String args);
+
+    public static void registerModule(String category, String name, long handle) {
+        BRIDGE.set(category, name, () -> invokeTick(handle));
+    }
+
+    public static void registerCommand(String cmd, long handle) {
+        BRIDGE.commandWithArgs(cmd, args -> invokeCommand(handle, args));
+    }
+
     public static void chat(String message) {
         BRIDGE.chat(message);
     }
