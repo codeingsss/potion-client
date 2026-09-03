@@ -22,7 +22,8 @@ public class ScriptCommand extends Command {
         builder.executes(context -> {
             try {
                 func.run();
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // Throwable, not Exception: catches native addon UnsatisfiedLinkError too.
                 error("Script error: %s", e.getMessage());
             }
 

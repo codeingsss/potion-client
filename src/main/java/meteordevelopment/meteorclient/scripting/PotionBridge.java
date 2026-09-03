@@ -36,7 +36,7 @@ public class PotionBridge {
             return;
         }
 
-        Modules.get().add(new ScriptModule(findOrCreateCategory(category), name, func));
+        Modules.get().add(ScriptModulePool.create(findOrCreateCategory(category), name, func));
     }
 
     public void command(String cmd, Runnable func) {

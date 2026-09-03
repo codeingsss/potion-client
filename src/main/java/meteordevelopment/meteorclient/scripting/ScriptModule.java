@@ -26,7 +26,10 @@ public class ScriptModule extends Module {
 
         try {
             func.run();
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable, not Exception: a native addon's callback can throw UnsatisfiedLinkError
+            // (e.g. it never bound invokeTick via RegisterNatives) or another Error subtype, and
+            // those must not escape into the tick event bus and take other modules down with them.
             erroredOut = true;
             ChatUtils.error("Potion script error in '%s': %s", title, e.getMessage());
             toggle();

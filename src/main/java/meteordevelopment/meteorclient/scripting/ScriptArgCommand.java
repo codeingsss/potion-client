@@ -40,7 +40,8 @@ public class ScriptArgCommand extends Command {
     private void run(String args) {
         try {
             func.accept(args);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable, not Exception: catches native addon UnsatisfiedLinkError too.
             error("Script error: %s", e.getMessage());
         }
     }
