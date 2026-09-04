@@ -7,7 +7,6 @@ package meteordevelopment.meteorclient.scripting;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.scripting.natives.NativeAddonMarker;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 
 import java.io.File;
 import java.util.List;
@@ -39,7 +38,7 @@ class NativeRuntime {
                 MeteorClient.LOG.info("Potion scripting: loaded native addon '{}'.", lib.getName());
             } catch (Throwable t) {
                 MeteorClient.LOG.error("Potion scripting: failed to load native addon '{}'.", lib.getName(), t);
-                ChatUtils.error("Failed to load Potion native addon '%s': %s", lib.getName(), t.getMessage());
+                PotionScripting.reportLoadError(String.format("Failed to load Potion native addon '%s': %s", lib.getName(), t.getMessage()));
             }
         }
     }

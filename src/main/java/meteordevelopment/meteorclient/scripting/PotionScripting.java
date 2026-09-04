@@ -8,8 +8,10 @@ package meteordevelopment.meteorclient.scripting;
 import bsh.EvalError;
 import bsh.Interpreter;
 import meteordevelopment.meteorclient.MeteorClient;
+import meteordevelopment.meteorclient.events.game.GameJoinedEvent;
 import meteordevelopment.meteorclient.utils.PostInit;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
+import meteordevelopment.orbit.EventHandler;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,6 +31,26 @@ import java.util.Set;
  */
 public class PotionScripting {
     private static final String[] NATIVE_EXTENSIONS = { ".dll", ".so", ".dylib" };
+
+    // Addon loading happens at @PostInit, before a world/chat exists yet, so ChatUtils.error()
+    // calls made during loading are silently dropped (ChatUtils.sendMsg no-ops while mc.world is
+    // null). Queue them here instead and show them once, the first time the player joins a world.
+    private static final List<String> pendingLoadErrors = new ArrayList<>();
+
+    static void reportLoadError(String message) {
+        pendingLoadErrors.add(message);
+    }
+
+    @EventHandler
+    private static void onGameJoined(GameJoinedEvent event) {
+        if (pendingLoadErrors.isEmpty()) return;
+
+        for (String message : pendingLoadErrors) {
+            ChatUtils.error("%s", message);
+        }
+
+        pendingLoadErrors.clear();
+    }
     private static final String NEW_BSH_ADDON_TEMPLATE = """
         myFeatureHandler() {
             run() {
@@ -37,7 +59,7 @@ public class PotionScripting {
             return this;
         }
 
-        po.set("Potion", "my-feature", (Runnable) myFeatureHandler());
+        po.set("Potion", "%s", (Runnable) myFeatureHandler());
         """;
 
     private PotionScripting() {
@@ -109,24 +131,33 @@ public class PotionScripting {
         Files.createDirectories(addonsDir.toPath());
 
         String base = "new_addon";
+        String moduleName = "my-feature";
         File file = new File(addonsDir, base + ".bsh");
 
+        // Give each generated addon a unique module name too, matching its file suffix - not just
+        // a unique file name. Modules.add() replaces any existing module with the same name, so
+        // multiple un-edited "Add Addon" clicks would otherwise all fight over "my-feature" and
+        // only the last one created would remain a real, controllable module.
         for (int i = 1; file.exists(); i++) {
             file = new File(addonsDir, base + i + ".bsh");
+            moduleName = "my-feature-" + i;
         }
 
-        Files.writeString(file.toPath(), NEW_BSH_ADDON_TEMPLATE);
+        Files.writeString(file.toPath(), NEW_BSH_ADDON_TEMPLATE.formatted(moduleName));
         return file;
     }
 
     @PostInit
     public static void init() {
+        MeteorClient.EVENT_BUS.subscribe(PotionScripting.class);
+
         File addonsDir = getAddonsDir();
 
         try {
             Files.createDirectories(addonsDir.toPath());
         } catch (IOException e) {
             MeteorClient.LOG.error("Potion scripting: failed to set up the addons folder.", e);
+            reportLoadError("Failed to set up the Potion addons folder: " + e.getMessage());
             return;
         }
 
@@ -151,6 +182,7 @@ public class PotionScripting {
                 PythonRuntime.loadAll(pythonScripts, getPythonLibDir());
             } catch (Throwable t) {
                 MeteorClient.LOG.warn("Potion scripting: found .py addons, but the Python runtime (\"python-addon\") isn't installed or failed to start. Install/reinstall it alongside Potion Client to run them.", t);
+                reportLoadError("Found .py addons, but the Python runtime (\"python-addon\") isn't installed or failed to start.");
             }
         }
 
@@ -159,6 +191,7 @@ public class PotionScripting {
                 NativeRuntime.loadAll(nativeLibs);
             } catch (Throwable t) {
                 MeteorClient.LOG.warn("Potion scripting: found native addons, but the native runtime (\"native-addon\") isn't installed. Install it alongside Potion Client to run them.", t);
+                reportLoadError("Found native addons, but the native runtime (\"native-addon\") isn't installed.");
             }
         }
     }
@@ -171,7 +204,7 @@ public class PotionScripting {
             MeteorClient.LOG.info("Potion scripting: loaded addon '{}'.", script.getName());
         } catch (EvalError | IOException e) {
             MeteorClient.LOG.error("Potion scripting: failed to load addon '{}'.", script.getName(), e);
-            ChatUtils.error("Failed to load Potion addon '%s': %s", script.getName(), e.getMessage());
+            reportLoadError(String.format("Failed to load Potion addon '%s': %s", script.getName(), e.getMessage()));
         }
     }
 }

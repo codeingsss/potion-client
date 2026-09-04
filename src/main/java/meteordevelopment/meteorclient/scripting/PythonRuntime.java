@@ -6,7 +6,6 @@
 package meteordevelopment.meteorclient.scripting;
 
 import meteordevelopment.meteorclient.MeteorClient;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Source;
 
@@ -100,7 +99,7 @@ class PythonRuntime {
                 MeteorClient.LOG.info("Potion scripting: loaded addon '{}'.", script.getName());
             } catch (Exception e) {
                 MeteorClient.LOG.error("Potion scripting: failed to load addon '{}'.", script.getName(), e);
-                ChatUtils.error("Failed to load Potion addon '%s': %s", script.getName(), e.getMessage());
+                PotionScripting.reportLoadError(String.format("Failed to load Potion addon '%s': %s", script.getName(), e.getMessage()));
             }
         }
     }
